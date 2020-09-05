@@ -23,10 +23,15 @@ ITEM_DICT = ["りんご", "みかん", "にんじん", "かぼちゃ",
 RARE_ITEM_DICT = ["風来のシレン", "青春", "10万円",
                   "PSVita", "単位"]
 RARE_RATE = 0.05
+FIRST_MONEY = 300
+AUCTION_START_G = 1
+now_price = 0
 
 participant = []
+participant_is_end = []
 participant_id = []
 participant_like = []
+participant_money = []
 auction_item = []
 auction_progress = 0
 now_progress = Progress.FREE
@@ -34,12 +39,34 @@ now_progress = Progress.FREE
 
 def reset():
     global participant, participant_like, auction_item, auction_progress
-    global now_progress
+    global now_progress, participant_money
     participant = []
     participant_like = []
+    participant_money = []
     auction_item = []
     auction_progress = 0
     now_progress = Progress.FREE
+
+
+def end_game():
+    reset()
+
+
+def start_new_auction(message):
+    if auction_progress == len(auction_item):
+        end_game()
+        return
+    global now_price
+    now_price = AUCTION_START_G
+    message.send("""メンションで『bid "金額"』 ("と『』不要)で入札します')
+誰も入札出来ない金額になるか、一定時間経つと次へ移ります'
+時間はおおよそ30秒、ただし入札された後残り時間が10秒未満であれば残り10秒になります""")
+    now_mon = "所持金\n"
+    for i in range(len(participant)):
+        now_mon += participant[i] + ": " + participant_money[i]
+        if i != len(participant):
+            now_mon += "\n"
+    message.send(now_mon)
 
 
 @default_reply()
@@ -57,28 +84,34 @@ def default_func(message):
         message.reply("ウグゥーーーーーーーーーーッ!!!")
 
 
+@respond_to("break")
+def break_func(message):
+    if now_progress != Progress.FREE:
+        reset()
+        message.send("セッションを強制終了しました")
+    else:
+        message.send("何も始まっていません")
+
+
 @respond_to("help")
 def help_func(message):
     message.send("""\
 help ヘルプコマンド
 rule ルール説明
 start ゲーム開始
-break ゲームの強制終了""")
+break セッションの強制終了""")
 
 
 @respond_to("ok")
 def ok_func(message):
-    global auction_times, participant_like
+    global auction_times, participant_like, now_progress
     if now_progress != Progress.REQRUIT:
         message.send("確かに僕もOKだと思います")
-        client.chat_postMessage(
-            channel="UAG0Q7U30",
-            text="chat bot test message")
         return
     if len(participant) == 0:
         message.send("誰も参加していません")
         return
-    auction_times = len(participant) + random.randint(0, len(participant))
+    auction_times = len(participant) + random.randint(0, len(participant)+2)
     # 辞書サイズを超えないように
     auction_times = min(auction_times, len(RARE_ITEM_DICT + ITEM_DICT))
     auction_times = max(2, auction_times)
@@ -93,10 +126,17 @@ def ok_func(message):
         else:
             auction_item.append(use_dict[dict_idx])
             dict_idx += 1
+
     for i in range(len(participant)):
-        participant_like = random.sample(auction_item, 2)
-    message.send(str(*participant) + "さんでゲームを開始します")
-    message.send(str(participant_like))
+        participant_money.append(FIRST_MONEY)
+        participant_is_end.append(False)
+        participant_like.append(random.sample(auction_item, 2))
+        client.chat_postMessage(
+            channel=participant_id[i],
+            text=str(*participant_like)+"を落札して下さい。")
+    message.send("参加者は" + str(*participant) + "です")
+    now_progress = Progress.ONGAME
+    start_new_auction(message)
 
 
 @respond_to("start")
