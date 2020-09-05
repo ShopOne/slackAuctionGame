@@ -1,46 +1,124 @@
 # coding: utf-8
 
 from slackbot.bot import respond_to
+from slackbot.bot import default_reply
+from enum import Enum
+from run import client
+import random
 
 
-ITEM_DICT = ("りんご", "みかん", "にんじん", "かぼちゃ",
+class Progress(Enum):
+    FREE = "FREE"
+    REQRUIT = "REQRUIT"
+    ONGAME = "ONGAME"
+
+
+ITEM_DICT = ["りんご", "みかん", "にんじん", "かぼちゃ",
              "ちくわ", "カモメ", "乾電池", "コショウ",
              "扇風機", "カーテン", "えんぴつ", "桃",
              "ガム", "ぶどう", "いちご", "バイク",
              "パソコン", "針金", "輪ゴム", "靴下",
              "クッション", "うどん", "お茶", "犬",
-             "ゲーム", "モンブラン", "なべ", "フライパン")
-RARE_ITEM_DICT = ("風来のシレン", "青春", "10万円",
-                  "PSVita", "単位")
+             "ゲーム", "モンブラン", "なべ", "フライパン"]
+RARE_ITEM_DICT = ["風来のシレン", "青春", "10万円",
+                  "PSVita", "単位"]
 RARE_RATE = 0.05
 
 participant = []
+participant_id = []
 participant_like = []
+auction_item = []
+auction_progress = 0
+now_progress = Progress.FREE
+
+
+def reset():
+    global participant, participant_like, auction_item, auction_progress
+    global now_progress
+    participant = []
+    participant_like = []
+    auction_item = []
+    auction_progress = 0
+    now_progress = Progress.FREE
+
+
+@default_reply()
+def default_func(message):
+    if now_progress == Progress.REQRUIT:
+        user_name = message.user["profile"]["display_name"]
+        user_id = message.body['user']
+        if not (user_name in participant):
+            participant.append(user_name)
+            participant_id.append(user_id)
+            message.reply("参加を受け付けました")
+        else:
+            message.reply("既に参加しています")
+    else:
+        message.reply("ウグゥーーーーーーーーーーッ!!!")
+
+
 @respond_to("help")
 def help_func(message):
     message.send("""\
-            help ヘルプコマンド
-            rule ルール説明
-            start ゲーム開始
-            """)
+help ヘルプコマンド
+rule ルール説明
+start ゲーム開始
+break ゲームの強制終了""")
+
+
+@respond_to("ok")
+def ok_func(message):
+    global auction_times, participant_like
+    if now_progress != Progress.REQRUIT:
+        message.send("確かに僕もOKだと思います")
+        client.chat_postMessage(
+            channel="UAG0Q7U30",
+            text="chat bot test message")
+        return
+    if len(participant) == 0:
+        message.send("誰も参加していません")
+        return
+    auction_times = len(participant) + random.randint(0, len(participant))
+    # 辞書サイズを超えないように
+    auction_times = min(auction_times, len(RARE_ITEM_DICT + ITEM_DICT))
+    auction_times = max(2, auction_times)
+
+    use_dict = random.sample(ITEM_DICT, len(ITEM_DICT))
+    use_rare = random.sample(RARE_ITEM_DICT, len(RARE_ITEM_DICT))
+    dict_idx = rare_idx = 0
+    for i in range(auction_times):
+        if dict_idx == len(use_dict) or random.random() <= RARE_RATE:
+            auction_item.append(use_rare[rare_idx])
+            rare_idx += 1
+        else:
+            auction_item.append(use_dict[dict_idx])
+            dict_idx += 1
+    for i in range(len(participant)):
+        participant_like = random.sample(auction_item, 2)
+    message.send(str(*participant) + "さんでゲームを開始します")
+    message.send(str(participant_like))
 
 
 @respond_to("start")
 def start_func(message):
+    global now_progress
+    if(now_progress != now_progress.FREE):
+        message.send("今はstart出来ません")
+        return
+
     message.send("""ゲーム参加者を募集します
-            参加する人はなんでも良いのでこのbotにリプライを送信して下さい。
-            全員参加したら、OKとリプライして下さい。""")
+参加する人はなんでも良いのでこのbotにリプライを送信して下さい。
+全員参加したら、okとリプライして下さい。""")
+    now_progress = Progress.REQRUIT
 
 
 @respond_to("rule")
 def rule_func(message):
     message.send("""\
-            それぞれの人は全員所持金300円でオークションを行います。
-            全ての人に、オークションで欲しい物が2つ決められます。
-            これは他の人には分からず、被っている場合もあります。
-            その物は、必ず1度のみオークションに出品されます。
-            オークションには皆にとってどうでもいい品が出品される可能性もあります。
-            全てのオークションが終了した時点で、欲しい物を一番多く持っている人、
-            同じ数だけ持っているのなら、残ったお金が多い人が勝者となります。
-
-            つまりは本命を悟られ無いようにしながら、欲しい物を安く買い取るゲームです。""")
+それぞれの人は全員所持金300円でオークションを行います。
+全ての人に、オークションで欲しい物が2つ決められます。
+これは他の人には分からず、被っている場合もあります。
+その物は、必ず1度のみオークションに出品されます。
+オークションには皆にとってどうでもいい品が出品される可能性もあります。
+全てのオークションが終了した時点で、欲しい物を一番多く持っている人、
+同じ数だけ持っているのなら、残ったお金が多い人が勝者となります。""")
