@@ -8,6 +8,7 @@ from plugins.progress import Progress
 import random
 import time
 import threading
+import datetime
 
 
 ITEM_DICT = ["りんご", "みかん", "にんじん", "かぼちゃ",
@@ -23,9 +24,11 @@ RARE_RATE = 0.05
 FIRST_MONEY = 300
 AUCTION_START_G = 1
 INTERVAL = 10
+WAIT_AUCTION = 3
 
 now_price = 0
 least_count = 0
+latest_bid_id = ""
 participant = []
 auction_item = []
 auction_progress = 0
@@ -55,20 +58,35 @@ def end_game():
     reset()
 
 
-def decrease_least():
-    global least_count
-    print("call" + str(time.time()))
+def decrease_least(message):
+    global least_count, occor_bid
+    print_time = False
+    if least_count == WAIT_AUCTION:
+        print_time = True
+
     least_count -= 1
+    if occor_bid and least_count == 0:
+        print_time = True
+        least_count = 1
+
+    occor_bid = False
+    if print_time:
+        end_time = datetime.datetime.now()
+        end_time += datetime.timedelta(seconds=10 * least_count)
+        message.send("終了予定は"
+                     + str(end_time.hour) + ":"
+                     + str(end_time.minute) + ":"
+                     + str(end_time.second) + "です")
 
 
 def auction_schedule(message):
-    global least_count
+    global least_count, occor_bid
     base_time = time.time()
     next_time = 0
-    least_count = 3
-#    occor_bid = False
+    least_count = WAIT_AUCTION
+    occor_bid = False
     while least_count > 0:
-        t = threading.Thread(target=decrease_least)
+        t = threading.Thread(target=decrease_least, args=(message,))
         t.start()
         next_time = ((base_time - time.time()) % INTERVAL) or INTERVAL
         time.sleep(next_time)
@@ -108,6 +126,7 @@ def default_func(message):
 
 @respond_to(r"bid \d+")
 def bid_func(message):
+    global now_price, latest_bid_id, occor_bid
     if now_progress != Progress.ONGAME:
         message.send("今は何も出品していません")
         return
@@ -116,16 +135,21 @@ def bid_func(message):
     if(len(parsed_text) != 2 and not is_integer(parsed_text[1])):
         message.send("フォーマットに不具合があります")
         return
-#    bid_price = int(parsed_text[1])
-
-
-@respond_to("break")
-def break_func(message):
-    if now_progress != Progress.FREE:
-        reset()
-        message.send("セッションを強制終了しました")
-    else:
-        message.send("何も始まっていません")
+    user_id = message.body['user']
+    bid_price = int(parsed_text[1])
+    if now_price > bid_price:
+        message.send("現在の価格" + str(now_price) + "より低い金額です")
+        return
+    for p in participant:
+        if p.id == user_id:
+            if p.money < bid_price:
+                message.reply("Gが足りていません")
+            else:
+                message.reply(str(bid_price) + "での入札を確認しました")
+                now_price = bid_price
+                latest_bid_id = user_id
+                occor_bid = True
+            break
 
 
 @respond_to("help")
@@ -133,8 +157,7 @@ def help_func(message):
     message.send("""\
 help ヘルプコマンド
 rule ルール説明
-start ゲーム開始
-break セッションの強制終了""")
+start ゲーム開始""")
 
 
 @respond_to("ok")
@@ -167,7 +190,6 @@ def ok_func(message):
         client.chat_postMessage(
             channel=participant[i].id,
             text=str(participant[i].like)+"を落札して下さい。")
-    message.send("参加者は" + str(*participant) + "です")
     now_progress = Progress.ONGAME
     start_new_auction(message)
 
