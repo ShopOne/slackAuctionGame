@@ -29,7 +29,7 @@ WAIT_AUCTION = 3
 now_price = 0
 least_count = 0
 latest_bid_id = ""
-participant = []
+participant = {}
 auction_item = []
 auction_progress = 0
 now_progress = Progress.FREE
@@ -47,14 +47,44 @@ def is_integer(n):
 
 def reset():
     global participant, auction_item, auction_progress
-    global now_progress
-    participant = []
-    auction_item = []
+    global now_progress, now_price, least_count, latest_bid_id
+    global occor_bid
+    now_price = 0
+    least_count = 0
+    latest_bid_id = ""
+    participant.clear()
+    auction_item.clear()
     auction_progress = 0
     now_progress = Progress.FREE
+    occor_bid = False
 
 
-def end_game():
+def end_game(message):
+    winner_names = []
+    winner_buy = -100
+    winner_money = -100
+    for i in participant.keys():
+        buy = 0
+        for j in participant[i].like:
+            if j in participant[i].buy:
+                buy += 1
+        if (buy > winner_buy) or \
+                (buy == winner_buy and participant[i].money > winner_money):
+            winner_buy = buy
+            winner_money = participant[i].money
+            winner_names = [participant[i].name]
+        elif(buy == winner_buy and participant[i].money == winner_money):
+            winner_names.append(participant[i].name)
+
+    message.send(str(*winner_names)+"さんが勝者です！ おめでとうございます！")
+    result = ""
+    for i in participant.keys():
+        result += participant[i].name + "\n"
+        result += "所持金:"+str(participant[i].money) +\
+            "   購入品:" + str(participant[i].buy) +\
+            "   買いたかった物:" + str(participant[i].like) + "\n"
+    result = result.rstrip('\n')
+    message.send(result)
     reset()
 
 
@@ -68,6 +98,7 @@ def decrease_least(message):
     if occor_bid and least_count == 0:
         print_time = True
         least_count = 1
+        message.send("延長が発生しました")
 
     occor_bid = False
     if print_time:
@@ -80,33 +111,45 @@ def decrease_least(message):
 
 
 def auction_schedule(message):
-    global least_count, occor_bid
+    global least_count, occor_bid, auction_progress
     base_time = time.time()
     next_time = 0
-    least_count = WAIT_AUCTION
+    least_count = 1
     occor_bid = False
     while least_count > 0:
         t = threading.Thread(target=decrease_least, args=(message,))
         t.start()
         next_time = ((base_time - time.time()) % INTERVAL) or INTERVAL
         time.sleep(next_time)
+    send_text = ""
+    if latest_bid_id != "":
+        send_text = participant[latest_bid_id].name + "さん" + \
+                str(now_price) + "Gで落札！"
+        participant[latest_bid_id].money -= now_price
+        participant[latest_bid_id].buy.append(auction_item[auction_progress])
+    else:
+        message.send("誰も入札しませんでした")
+
+    message.send(send_text)
+    auction_progress += 1
+    start_new_auction(message)
 
 
 def start_new_auction(message):
     if auction_progress == len(auction_item):
-        end_game()
+        end_game(message)
         return
-    global now_price
+    global now_price, latest_bid_id
+    latest_bid_id = ""
     now_price = AUCTION_START_G
-    message.send("""メンションで『bid "金額"』 ("と『』不要)で入札します')
-誰も入札出来ない金額になるか、一定時間経つと次へ移ります'
-時間はおおよそ30秒、ただし残り時間が10秒未満の間に入札された場合は時間が延長します""")
     now_mon = "所持金\n"
-    for i in range(len(participant)):
+    for i in participant.keys():
         now_mon += participant[i].name + ": " + str(participant[i].money)
         if i != len(participant):
             now_mon += "\n"
     message.send(now_mon)
+    message.send("商品は" + auction_item[auction_progress] + "です(" +
+                 str(auction_progress+1) + "/" + str(len(auction_item)) + ")")
     auction_schedule(message)
 
 
@@ -115,11 +158,8 @@ def default_func(message):
     if now_progress == Progress.REQRUIT:
         user_name = message.user["profile"]["display_name"]
         user_id = message.body['user']
-        if not (user_name in participant):
-            participant.append(Person(user_id, user_name, FIRST_MONEY))
-            message.reply("参加を受け付けました")
-        else:
-            message.reply("既に参加しています")
+        participant[user_id] = Person(user_id, user_name, FIRST_MONEY)
+        message.reply("参加を受け付けました")
     else:
         message.reply("ウグゥーーーーーーーーーーッ!!!")
 
@@ -137,19 +177,16 @@ def bid_func(message):
         return
     user_id = message.body['user']
     bid_price = int(parsed_text[1])
-    if now_price > bid_price:
-        message.send("現在の価格" + str(now_price) + "より低い金額です")
+    if now_price >= bid_price:
+        message.send("現在の価格" + str(now_price) + "以下の金額です")
         return
-    for p in participant:
-        if p.id == user_id:
-            if p.money < bid_price:
-                message.reply("Gが足りていません")
-            else:
-                message.reply(str(bid_price) + "での入札を確認しました")
-                now_price = bid_price
-                latest_bid_id = user_id
-                occor_bid = True
-            break
+    if participant[user_id].money < bid_price:
+        message.reply("Gが足りていません")
+    else:
+        message.reply(str(bid_price) + "Gでの入札を確認しました")
+        now_price = bid_price
+        latest_bid_id = user_id
+        occor_bid = True
 
 
 @respond_to("help")
@@ -157,7 +194,9 @@ def help_func(message):
     message.send("""\
 help ヘルプコマンド
 rule ルール説明
-start ゲーム開始""")
+init ゲーム準備
+start ゲーム開始(init後)
+bid 『金額』 入札""")
 
 
 @respond_to("ok")
@@ -185,20 +224,24 @@ def ok_func(message):
             auction_item.append(use_dict[dict_idx])
             dict_idx += 1
 
-    for i in range(len(participant)):
+    for i in participant.keys():
         participant[i].like = random.sample(auction_item, 2)
         client.chat_postMessage(
             channel=participant[i].id,
             text=str(participant[i].like)+"を落札して下さい。")
     now_progress = Progress.ONGAME
+    message.send("""メンションで『bid "金額"』 ("と『』不要)で入札します
+金額は整数のみです。
+一定時間経つと次のオークションへ移ります
+時間はおおよそ30秒、ただし残り時間が10秒未満の間に入札された場合は時間が延長します""")
     start_new_auction(message)
 
 
-@respond_to("start")
+@respond_to("init")
 def start_func(message):
     global now_progress
     if(now_progress != Progress.FREE):
-        message.send("今はstart出来ません")
+        message.send("今はinit出来ません")
         return
 
     message.send("""ゲーム参加者を募集します
@@ -210,10 +253,11 @@ def start_func(message):
 @respond_to("rule")
 def rule_func(message):
     message.send("""\
-それぞれの人は全員所持金300円でオークションを行います。
-全ての人に、オークションで欲しい物が2つ決められます。
+全員所持金300円でオークションを行います。
+全ての人に、オークションで欲しい物が2つ決められ、DMで伝えられます。
 これは他の人には分からず、被っている場合もあります。
 その物は、必ず1度のみオークションに出品されます。
-オークションには皆にとってどうでもいい品が出品される可能性もあります。
 全てのオークションが終了した時点で、欲しい物を一番多く持っている人、
-同じ数だけ持っているのなら、残ったお金が多い人が勝者となります。""")
+同じ数だけ持っているのなら、残ったお金が多い人が勝者となります。
+
+オークションには、皆にとってどうでも良い品が出る場合もあります。""")

@@ -2,6 +2,7 @@ class Person:
     id = ""
     name = ""
     like = ["", ""]
+    buy = []
     money = 0
 
     def __eq__(self, other):
