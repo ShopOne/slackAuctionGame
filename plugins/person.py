@@ -1,10 +1,4 @@
 class Person:
-    id = ""
-    name = ""
-    like = ["", ""]
-    buy = []
-    money = 0
-
     def __eq__(self, other):
         if not isinstance(other, Person):
             return NotImplemented
@@ -13,4 +7,6 @@ class Person:
     def __init__(self, uid, uname, fmoney):
         self.id = uid
         self.name = uname
+        self.like = ["", ""]
+        self.buy = []
         self.money = fmoney
