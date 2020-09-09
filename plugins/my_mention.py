@@ -114,7 +114,7 @@ def auction_schedule(message):
     global least_count, occor_bid, auction_progress
     base_time = time.time()
     next_time = 0
-    least_count = 1
+    least_count = WAIT_AUCTION
     occor_bid = False
     while least_count > 0:
         t = threading.Thread(target=decrease_least, args=(message,))
